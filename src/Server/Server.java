@@ -24,13 +24,17 @@ public class Server {
         Boolean isPutLocked = false;
 
         try {
+            // inicializa socket do servidor
             ServerSocket server = new ServerSocket(port);
 
+            // inicializa informações do servidor
             ServerInfo serverInfo = new ServerInfo(port, ip, isLeader, server);
 
+            // loop infinito que espera por conexões
             while (true) {
                 Socket clientSocket = server.accept();
 
+                // cria uma thread para tratar a requisição
                 HandleRequest request = new HandleRequest(clientSocket, serverInfo, isPutLocked);
                 request.start();
             }
@@ -107,6 +111,7 @@ public class Server {
         }
         public void run() {
             try {
+                // recebe a mensagem
                 InputStream is = client.getInputStream();
                 byte[] buffer = new byte[1024];
                 int readBytes = is.read(buffer);
@@ -116,6 +121,7 @@ public class Server {
                 Message message = new Message(rawMessage);
                 Message response;
 
+                // trata a mensagem dado o método
                 switch (message.method) {
                     case "PUT":
                         response = handlePUT(message);
@@ -130,6 +136,7 @@ public class Server {
                         throw new RuntimeException("Invalid method");
                 }
 
+                // envia a resposta
                 client.getOutputStream().write(response.getRaw().getBytes());
 
             } catch (Exception e) {
@@ -143,25 +150,41 @@ public class Server {
             }
         }
 
+        /**
+         * Método GET
+         *
+         * recebe:
+         * GET <chave>:<timestamp>
+         *
+         * pode retornar:
+         * GET_OK <valor>:<timestamp>
+         * TRY_OTHER_SERVER_OR_LATER
+         */
         private Message handleGET(Message message) {
             if (!message.method.equals("GET")) {
                 throw new RuntimeException("Invalid method");
             }
 
+            // extrai a chave e o timestamp da mensagem
             String[] messageParts = message.content.split(":");
             String key = messageParts[0];
             String timestamp = messageParts[1];
             Date timestampDate = new Date(Long.parseLong(timestamp));
+
+            // verifica se a chave existe no servidor
             ServerInfo.Node node = server.get(key);
 
+            // compara o timestamp da mensagem com o timestamp do servidor
             String value = node != null ? node.value : null;
             Date serverTimestampDate = node != null ? node.timestamp : null;
 
             String responseRawMessage;
             Boolean isBefore = timestampDate.before(serverTimestampDate);
             if (isBefore) {
+                // se o timestamp da mensagem for anterior ao timestamp do servidor, retorna TRY_OTHER_SERVER_OR_LATER
                 responseRawMessage = Message.buildRawMessage("TRY_OTHER_SERVER_OR_LATER", "");
             } else {
+                // caso contrário, retorna GET_OK com o valor e o timestamp do servidor
                 responseRawMessage = Message.buildRawMessage("GET_OK", value + ":" + serverTimestampDate.getTime());
             }
 
@@ -172,12 +195,23 @@ public class Server {
             return new Message(responseRawMessage);
         }
 
+        /**
+         * Método PUT
+         *
+         * recebe:
+         * PUT <chave>:<valor>
+         *
+         * pode retornar:
+         * PUT_OK <chave>:<valor>:<timestamp>
+        */
         private Message handlePUT(Message message) {
             if (!message.method.equals("PUT")) {
                 throw new RuntimeException("Invalid method");
             }
 
+            // verifica se o servidor está ocupado
             if (isPutLocked) {
+                // caso esteja, espera 100ms e tenta novamente
                 while (isPutLocked) {
                     try {
                         Thread.sleep(100);
@@ -187,9 +221,11 @@ public class Server {
                 }
             }
 
+            // trava o servidor
             isPutLocked = true;
 
             try {
+                // extrai a chave e o valor da mensagem
                 String[] messageParts = message.content.split(":");
                 String key = messageParts[0];
                 String value = messageParts[1];
@@ -197,21 +233,25 @@ public class Server {
                 Date serverTimestampDate = new Date();
 
                 if (server.isLeader) {
+                    // se for o líder, atualiza o timestamp do servidor e adiciona o valor na store
                     ServerInfo.Node node = new ServerInfo.Node(value, serverTimestampDate);
                     server.set(key, node);
 
                     System.out.println(String.format("Cliente %s:%d PUT key: %s value: %s", client.getInetAddress().getHostAddress(), client.getPort(), key, value));
 
+                    // replica o valor para os outros servidores
                     replicateToOtherServers(key, value, serverTimestampDate);
 
                     System.out.println(String.format("Enviando PUT_OK ao Cliente %s:%d da key: %s", client.getInetAddress().getHostAddress(), client.getPort(), key));
                 } else {
-
+                    // caso contrário, encaminha a mensagem para o líder
                     System.out.println(String.format("Encaminhando PUT key: %s value: %s", key, value));
 
                     try {
                         Request request = new Request("PUT", message.content, 10097);
                         request.start();
+
+                        // espera a resposta do líder
                         request.join();
                     } catch (Exception e) {
                         throw new RuntimeException(e);
@@ -224,19 +264,23 @@ public class Server {
             } catch (Exception e) {
                 throw new RuntimeException(e);
             } finally {
+                // destrava o servidor
                 isPutLocked = false;
             }
         }
 
         private void replicateToOtherServers(String key, String value, Date timestamp) {
+            // cria uma thread para cada servidor
             Request[] requests = new Request[server.otherServerPorts.length];
             for (int i = 0; i < server.otherServerPorts.length; i++) {
+                // inicia a thread para cada servidor
                 int port = server.otherServerPorts[i];
 
                 requests[i] = new Request("REPLICATION", key + ":" + value + ":" + timestamp.getTime(), port);
                 requests[i].start();
             }
 
+            // espera todas as threads terminarem
             for (int i = 0; i < server.otherServerPorts.length; i++) {
                 try {
                     requests[i].join();
@@ -260,15 +304,18 @@ public class Server {
             public void run() {
                 try {
                     String ip = "127.0.0.1";
+                    // inicializa socket
                     Socket socket = new Socket(ip, port);
 
                     Message message = new Message(method, content);
                     String rawMessage = message.getRaw();
 
+                    // envia a mensagem
                     OutputStream outputStream = socket.getOutputStream();
                     outputStream.write(rawMessage.getBytes());
                     outputStream.flush();
 
+                    // recebe a resposta
                     InputStream inputStream = socket.getInputStream();
                     byte[] buffer = new byte[1024];
                     int readBytes = inputStream.read(buffer);
@@ -289,15 +336,27 @@ public class Server {
             }
         }
 
+        /**
+         * Método REPLICATION
+         *
+         * recebe:
+         * REPLICATION <chave>:<valor>:<timestamp>
+         *
+         * pode retornar:
+         * REPLICATION_OK
+         */
         private Message handleReplication(Message message) {
             if (!message.method.equals("REPLICATION")) {
                 throw new RuntimeException("Invalid method");
             }
 
+            // extrai a chave, o valor e o timestamp da mensagem
             String[] messageParts = message.content.split(":");
             String key = messageParts[0];
             String value = messageParts[1];
             Date timestamp = new Date(Long.parseLong(messageParts[2]));
+
+            // atualiza o timestamp e o valor na store
             ServerInfo.Node node = new ServerInfo.Node(value, timestamp);
             server.set(key, node);
 

@@ -5,7 +5,6 @@ import Message.Message;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Scanner;
 
@@ -59,6 +58,9 @@ public class Client {
         System.out.println("quit - encerra o cliente");
     }
 
+    /**
+     * Faz a requisição GET para um servidor aleatório com o conteúdo <chave>:<timestamp>
+     */
     public static void get(String[] args, int[] ports, HashMap<String, String> clientStore) {
         if (args.length != 2) {
             System.out.println("Comando inválido");
@@ -77,10 +79,14 @@ public class Client {
     }
 
     public static int getRandomPort(int[] ports) {
+        // Retorna um servidor aleatório
         int randomIndex = (int) (Math.random() * ports.length);
         return ports[randomIndex];
     }
 
+    /**
+     * Faz a requisição PUT para um servidor aleatório com o conteúdo <chave>:<valor>
+     */
     public static void put(String[] args, int[] ports, HashMap<String, String> clientStore) {
         if (args.length != 3) {
             System.out.println("Comando inválido");
@@ -110,17 +116,21 @@ public class Client {
         public void run() {
             try {
                 String ip = "127.0.0.1";
+                // inicializa socket
                 Socket socket = new Socket(ip, this.port);
 
+                // monta a estrutura da mensagem
                 String rawMessage = Message.buildRawMessage(
                         method,
                         content
                 );
 
+                // envia a mensagem
                 OutputStream outputStream = socket.getOutputStream();
                 outputStream.write(rawMessage.getBytes());
                 outputStream.flush();
 
+                // recebe a resposta
                 InputStream inputStream = socket.getInputStream();
                 byte[] buffer = new byte[1024];
                 int readBytes = inputStream.read(buffer);
@@ -137,6 +147,9 @@ public class Client {
             }
         }
 
+        /**
+         * Trata a resposta do servidor
+         */
         private void handleResponse(Message message, String ip, int port) {
             String key;
             String value;

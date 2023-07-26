@@ -1,7 +1,5 @@
 package Message;
 
-import javax.management.StringValueExp;
-
 public class Message {
     private String raw;
     public String content;
@@ -10,12 +8,12 @@ public class Message {
 
 
     /**
+     * Classe da Mensagem
      *
      * @param raw
      *
-     * 127.0.0.1 1000
-     * 127.0.0.1 2000
-     * key:value
+     * <Método>
+     * <Conteúdo>
      */
     public Message(String raw) {
         this.raw = raw;
